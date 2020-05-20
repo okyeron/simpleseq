@@ -46,40 +46,6 @@ local max_note = 36
 local edit = 1
 local index = 1
 local alt = false
-local last_step = 1
------------------------------
--- MIDI
------------------------------
--- 
-local mo = midi.connect() -- defaults to port 1 (which is set in SYSTEM > DEVICES)
-mo.event = function(data) 
-  local msg = midi.to_msg(data)
-  local channel_param = params:get("midi_channel")
-  
-  if channel_param == 1 or (channel_param > 1 and msg.ch == channel_param - 1) then
-    -- Note on
-    if msg.type == "note_on" then
-      note_on(msg.note, msg.vel / 127)
-    -- Note off
-    elseif msg.type == "note_off" then
-      note_off(msg.note)
-    -- Pitch bend
-    elseif msg.type == "pitchbend" then
-      local bend_st = (util.round(msg.val / 2)) / 8192 * 2 -1 -- Convert to -1 to 1
-      set_pitch_bend(bend_st * params:get("bend_range"))
-    -- Pressure
-    elseif msg.type == "channel_pressure" or msg.type == "key_pressure" then
-      set_channel_pressure(msg.val / 127)
-    end
-  end
-
-end
-
-function midiallnotesoff()
-  for i=1, #steps.notes do
-    mo:note_off(base_note + steps.notes[i], 64, 1)
-  end
-end
 
 -----------------------------
 -- SETUP
@@ -115,7 +81,6 @@ function init_steps()
 end
 
 function randomize_steps()
-  midiallnotesoff()
   for i=1, #steps.notes do
     steps.notes[i] = math.random(0, max_note)
     steps.actives[i] = math.random(0, 1)
@@ -131,10 +96,9 @@ function tick()
   while true do
     clock.sync(1/4)
     
-    untrigger_step(last_step)
-    
+    untrigger_last_step()
     find_next_step()
-    trigger_step(index)
+    trigger_current_step()
     
     redraw()
   end
@@ -158,23 +122,16 @@ function find_next_step()
   end
 end
 
-function untrigger_step(idx)
-  mo:note_off(base_note + steps.notes[idx], 64, 1)
-  engine.noteOff(idx)
-  --engine.noteOffAll()
+function untrigger_last_step()
+  engine.noteOffAll()
 end
 
-function trigger_step(idx)
-  if steps.gates[idx] == 1 then
-    note = base_note + steps.notes[idx]
+function trigger_current_step()
+  if steps.gates[index] == 1 then
+    note = base_note + steps.notes[index]
     engine.noteOn(note, MusicUtil.note_num_to_freq(note), 1)
-    last_step = idx
-    --tab.print(steps.gates)
-    --print (note)
-    mo:note_on(note, 64, 1)
   end
 end
-
 
 -----------------------------
 -- INPUT HANDLING
@@ -207,7 +164,6 @@ end
 function enc(n, d)
   if n == 1 then
     mode = util.clamp(mode + d, 1, #mode_names)
-    midiallnotesoff()
   elseif n == 2 then
     edit = util.clamp(edit + d, 1, #steps.notes)
   elseif n == 3 then
